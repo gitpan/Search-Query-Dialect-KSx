@@ -16,7 +16,7 @@ use KinoSearch::Search::TermQuery;
 use Search::Query::Dialect::KSx::NOTWildcardQuery;
 use Search::Query::Dialect::KSx::WildcardQuery;
 
-our $VERSION = '0.02';
+our $VERSION = '0.03';
 
 __PACKAGE__->mk_accessors(
     qw(
@@ -173,14 +173,12 @@ sub stringify_clause {
 
     # normalize operator
     my $op = $clause->{op} || ":";
-    if ( $op eq '=' ) {
-        $op = ':';
-    }
+    $op =~ s/=/:/g;
     if ( $prefix eq '-' ) {
-        $op = '!' . $op;
+        $op = '!' . $op unless $op =~ m/^!/;
     }
-    if ( $value =~ m/\%/ ) {
-        $op = $prefix eq '-' ? '!~' : '~';
+    if ( $value =~ m/\*/ ) {
+        $op =~ s/:/~/g;
     }
 
     my $quote = $clause->quote || '';
@@ -200,13 +198,13 @@ NAME: for my $name (@fields) {
         if ( $op eq '!~' ) {
             $value .= $wildcard unless $value =~ m/\Q$wildcard/;
             push( @buf,
-                join( '', 'NOT ', $name, '=', qq/$quote$value$quote/ ) );
+                join( '', 'NOT ', $name, ':', qq/$quote$value$quote/ ) );
         }
 
         # fuzzy
         elsif ( $op eq '~' ) {
             $value .= $wildcard unless $value =~ m/\Q$wildcard/;
-            push( @buf, join( '', $name, '=', qq/$quote$value$quote/ ) );
+            push( @buf, join( '', $name, ':', qq/$quote$value$quote/ ) );
         }
 
         # invert
