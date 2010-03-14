@@ -16,3 +16,8 @@ Revision history for Search-Query-Dialect-KSx
         * fix bug when no default_field is defined in Dialect 
           or Parser
 
+0.05    14 March 2010
+        * refactor scoring via Compiler and Scorer.
+        * fix bugs with NOTQuery
+        * support NOTQuery around a RangeQuery
+        * preserve syntax of RangeQuerys on stringify()

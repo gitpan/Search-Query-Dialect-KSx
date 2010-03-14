@@ -2,7 +2,7 @@
 
 use strict;
 use warnings;
-use Test::More tests => 57;
+use Test::More tests => 59;
 use Data::Dump qw( dump );
 
 use KinoSearch::Analysis::PolyAnalyzer;
@@ -79,6 +79,17 @@ ok( my $query7 = $parser3->parse('green'), "query7" );
 
 is( $query7, qq/green/, "query7 string" );
 
+ok( my $gardenq = $parser3->parse('(garden) AND (-foo=(20100208..20100309))'),
+    "parse complex garden query with range"
+);
+
+#dump $gardenq;
+
+is( $gardenq,
+    qq/garden AND (NOT foo:(20100208..20100309))/,
+    "parsed garden query"
+);
+
 ok( my $parser4 = Search::Query::Parser->new(
         fields         => [qw( foo )],
         dialect        => 'KSx',
@@ -142,16 +153,13 @@ ok( my $range_query = $range_parser->parse("date=(1..10)"), "parse range" );
 
 #dump $range_query;
 
-is( $range_query,
-    qq/date:(1 OR 2 OR 3 OR 4 OR 5 OR 6 OR 7 OR 8 OR 9 OR 10)/,
-    "range expanded"
-);
+is( $range_query, qq/date:(1..10)/, "range expanded" );
 
-ok( my $range_not_query = $range_parser->parse("date!=( 1..3 )"),
+ok( my $range_not_query = $range_parser->parse("-(date=( 1..3 ))"),
     "parse !range" );
 
 #dump $range_not_query;
-is( $range_not_query, qq/-date:( 1 2 3 )/, "!range exanded" );
+is( $range_not_query, qq/NOT (date:(1..3))/, "!range expanded" );
 
 # operators
 ok( my $or_pipe_query = $range_parser->parse("date:( 1 | 2 )"),

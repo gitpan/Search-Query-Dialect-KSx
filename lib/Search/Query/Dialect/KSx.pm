@@ -16,7 +16,7 @@ use KinoSearch::Search::TermQuery;
 use Search::Query::Dialect::KSx::NOTWildcardQuery;
 use Search::Query::Dialect::KSx::WildcardQuery;
 
-our $VERSION = '0.04';
+our $VERSION = '0.05';
 
 __PACKAGE__->mk_accessors(
     qw(
@@ -139,12 +139,14 @@ sub stringify_clause {
     my $clause = shift;
     my $prefix = shift;
 
+    #warn '=' x 80;
     #warn dump $clause;
     #warn "prefix = '$prefix'";
 
     if ( $clause->{op} eq '()' ) {
         if ( $clause->has_children and $clause->has_children == 1 ) {
-            return $self->stringify( $clause->{value} );
+            return ( $prefix eq '-' ? 'NOT ' : '' )
+                . $self->stringify( $clause->{value} );
         }
         else {
             return
@@ -180,7 +182,7 @@ sub stringify_clause {
     if ( $prefix eq '-' ) {
         $op = '!' . $op unless $op =~ m/^!/;
     }
-    if ( $value =~ m/\*/ ) {
+    if ( $value =~ m/[\*\?]|\Q$wildcard/ ) {
         $op =~ s/:/~/g;
     }
 
@@ -195,7 +197,7 @@ NAME: for my $name (@fields) {
             next NAME;
         }
 
-        #warn dump [ $name, $op, $quote, $value ];
+        #warn "ks string: " . dump [ $name, $op, $prefix, $quote, $value ];
 
         # invert fuzzy
         if ( $op eq '!~' ) {
@@ -222,16 +224,11 @@ NAME: for my $name (@fields) {
                 croak "range of values must be a 2-element ARRAY";
             }
 
-            # we support only numbers at this point
-            for my $v (@$value) {
-                if ( $v =~ m/\D/ ) {
-                    croak "non-numeric range values are not supported: $v";
-                }
-            }
-
-            my @range = ( $value->[0] .. $value->[1] );
-            push( @buf,
-                join( '', $name, ':', '(', join( ' OR ', @range ), ')' ) );
+            push(
+                @buf,
+                join( '',
+                    $name, ':', '(', $value->[0], '..', $value->[1], ')' )
+            );
 
         }
 
@@ -241,16 +238,10 @@ NAME: for my $name (@fields) {
                 croak "range of values must be a 2-element ARRAY";
             }
 
-            # we support only numbers at this point
-            for my $v (@$value) {
-                if ( $v =~ m/\D/ ) {
-                    croak "non-numeric range values are not supported: $v";
-                }
-            }
-
-            my @range = ( $value->[0] .. $value->[1] );
-            push( @buf,
-                join( '', '-', $name, ':', '( ', join( ' ', @range ), ' )' )
+            push(
+                @buf,
+                join( '',
+                    $name, '!:', '(', $value->[0], '..', $value->[1], ')' )
             );
         }
 
@@ -274,6 +265,12 @@ KinoSearch::Searcher-compatible tree.
 
 =cut
 
+my %ks_class_map = (
+    '+' => 'AND',
+    ''  => 'OR',
+    '-' => 'NOT',
+);
+
 sub as_ks_query {
     my $self = shift;
     my $tree = shift || $self;
@@ -281,7 +278,7 @@ sub as_ks_query {
     my @q;
     foreach my $prefix ( '+', '', '-' ) {
         my @clauses;
-        my $joiner = $op_map{$prefix};
+        my $joiner = $ks_class_map{$prefix};
         next unless exists $tree->{$prefix};
         for my $clause ( @{ $tree->{$prefix} } ) {
             push( @clauses, $self->_ks_clause( $clause, $prefix ) );
@@ -290,9 +287,26 @@ sub as_ks_query {
 
         my $ks_class = 'KinoSearch::Search::' . $joiner . 'Query';
 
-        push @q, @clauses == 1
-            ? $clauses[0]
-            : $ks_class->new( children => [ grep {defined} @clauses ] );
+        if ( @clauses == 1 ) {
+            if ( $prefix eq '-' ) {
+                push @q, $ks_class->new( negated_query => $clauses[0] );
+            }
+            else {
+                push @q, $clauses[0];
+            }
+        }
+        else {
+            if ( $prefix eq '-' ) {
+                my $and_not = KinoSearch::Search::ANDQuery->new(
+                    children => \@clauses );
+                push @q, $and_not;
+            }
+            else {
+                push @q,
+                    $ks_class->new( children => [ grep {defined} @clauses ] );
+            }
+        }
+
     }
 
     return @q == 1
@@ -336,13 +350,11 @@ sub _ks_clause {
 
     # normalize operator
     my $op = $clause->{op} || ":";
-    if ( $op eq '=' ) {
-        $op = ':';
-    }
+    $op =~ s/=/:/g;
     if ( $prefix eq '-' ) {
-        $op = '!' . $op;
+        $op = '!' . $op unless $op =~ m/^!/;
     }
-    if ( $value =~ m/\%/ ) {
+    if ( $value =~ m/[\*\?]|\Q$wildcard/ ) {
         $op = $prefix eq '-' ? '!~' : '~';
     }
 
@@ -358,7 +370,7 @@ FIELD: for my $name (@fields) {
             next FIELD;
         }
 
-        #warn dump [ $name, $op, $quote, $value ];
+        #warn "as_ks_query: " . dump [ $name, $op, $prefix, $quote, $value ];
 
         # range is un-analyzed
         if ( $op eq '..' ) {
@@ -385,8 +397,20 @@ FIELD: for my $name (@fields) {
                 croak "range of values must be a 2-element ARRAY";
             }
 
-            croak "NOT Range query not yet supported";
-            next FIELD;    # haha. never get here.
+            my $range_query = KinoSearch::Search::RangeQuery->new(
+                field         => $name,
+                lower_term    => $value->[0],
+                upper_term    => $value->[1],
+                include_lower => 1,
+                include_upper => 1,
+            );
+            push(
+                @buf,
+                KinoSearch::Search::NOTQuery->new(
+                    negated_query => $range_query
+                )
+            );
+            next FIELD;
         }
 
         $self->debug and warn "value before:$value";
@@ -498,8 +522,10 @@ FIELD: for my $name (@fields) {
                 push(
                     @buf,
                     KinoSearch::Search::NOTQuery->new(
-                        field => $name,
-                        term  => $term,
+                        negated_query => KinoSearch::Search::TermQuery->new(
+                            field => $name,
+                            term  => $term,
+                        )
                     )
                 );
             }
