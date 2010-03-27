@@ -2,7 +2,7 @@
 
 use strict;
 use warnings;
-use Test::More tests => 59;
+use Test::More tests => 65;
 use Data::Dump qw( dump );
 
 use KinoSearch::Analysis::PolyAnalyzer;
@@ -65,7 +65,7 @@ is( $query5, qq/joe OR smith/, "query5 string" );
 
 ok( my $query6 = $parser2->parse(qq/"joe smith"/), "query6" );
 
-is( $query6, qq/joe smith/, "query6 string" );
+is( $query6, qq/"joe smith"/, "query6 string" );
 
 ok( my $parser3 = Search::Query::Parser->new(
         fields         => [qw( foo bar )],
@@ -103,6 +103,12 @@ my $errstr = $@;
 ok( $errstr, "croak on invalid query" );
 like( $errstr, qr/No such field: bar/, "caught exception we expected" );
 
+ok( my $round_trip_not = $parser4->parse('NOT foo:bar'),
+    "parse NOT foo:bar" );
+ok( my $round_trip_not2 = $parser4->parse('foo!=bar'), "parse foo!=bar" );
+is( "$round_trip_not", "$round_trip_not2", "not round trips" );
+is( $round_trip_not2,  qq/NOT foo:bar/,    "!= to NOT :" );
+
 ok( my $parser5 = Search::Query::Parser->new(
         fields => {
             foo => { type => 'char' },
@@ -116,15 +122,10 @@ ok( my $parser5 = Search::Query::Parser->new(
 );
 
 ok( my $query8 = $parser5->parse('foo:bar'), "query8" );
-
 is( $query8, qq/foo:bar*/, "query8 string" );
-
 ok( $query8 = $parser5->parse('bar:1*'), "query8 fuzzy int with wildcard" );
-
 is( $query8, qq/bar:1*/, "query8 fuzzy int with wildcard string" );
-
 ok( $query8 = $parser5->parse('bar=1'), "query8 fuzzy int no wildcard" );
-
 is( $query8, qq/bar:1*/, "query8 fuzzy int no wildcard string" );
 
 ok( my $parser6 = Search::Query::Parser->new(
@@ -218,3 +219,8 @@ ok( my $nofields_parser = Search::Query->parser( dialect => 'KSx', ),
     "nofields parser" );
 ok( my $nofields_query = $nofields_parser->parse('foo'), "parse nofields" );
 is( $nofields_query, "foo", "stringify nofields_query" );
+
+# proximity
+ok( my $proximity = $nofields_parser->parse(qq/"foo bar"~5/),
+    "parse proximity phrase" );
+is( $proximity, qq/"foo bar"~5/, "stringify proximity" );

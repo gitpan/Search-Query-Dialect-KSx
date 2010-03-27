@@ -13,15 +13,17 @@ use KinoSearch::Search::ORQuery;
 use KinoSearch::Search::PhraseQuery;
 use KinoSearch::Search::RangeQuery;
 use KinoSearch::Search::TermQuery;
+use KSx::Search::ProximityQuery;
 use Search::Query::Dialect::KSx::NOTWildcardQuery;
 use Search::Query::Dialect::KSx::WildcardQuery;
 
-our $VERSION = '0.05';
+our $VERSION = '0.06';
 
 __PACKAGE__->mk_accessors(
     qw(
         wildcard
         fuzzify
+        ignore_order_in_proximity
         )
 );
 
@@ -64,6 +66,22 @@ Default is '*'.
 =item fuzzify
 
 If true, a wildcard is automatically appended to each query term.
+
+=item ignore_order_in_proximity
+
+If true, the terms in a proximity query will be evaluated for 
+matches regardless of the order in which they appear. For example,
+given a document excerpt like:
+
+ foo bar bing
+
+and a query like:
+
+ "bing foo"~5
+
+if ignore_order_in_proximity is true, the document would match.
+If ignore_order_in_proximity is false (the default), the document would
+not match.
 
 =back
 
@@ -155,6 +173,12 @@ sub stringify_clause {
         }
     }
 
+    my $quote     = $clause->quote     || '';
+    my $proximity = $clause->proximity || '';
+    if ($proximity) {
+        $proximity = '~' . $proximity;
+    }
+
     # make sure we have a field
     my $default_field 
         = $self->default_field
@@ -171,8 +195,11 @@ sub stringify_clause {
         ? $clause->{value}
         : $self->_doctor_value($clause);
 
-    # if we have no fields, we're done
-    return $value unless @fields;
+    # if we have no fields, then operator is ignored.
+    if ( !@fields ) {
+        $self->debug and warn "no fields for " . dump($clause);
+        return qq/$quote$value$quote$proximity/;
+    }
 
     my $wildcard = $self->wildcard;
 
@@ -186,8 +213,6 @@ sub stringify_clause {
         $op =~ s/:/~/g;
     }
 
-    my $quote = $clause->quote || '';
-
     my @buf;
 NAME: for my $name (@fields) {
         my $field = $self->_get_field($name);
@@ -197,25 +222,34 @@ NAME: for my $name (@fields) {
             next NAME;
         }
 
-        #warn "ks string: " . dump [ $name, $op, $prefix, $quote, $value ];
+        $self->debug
+            and warn "ks string: "
+            . dump [ $name, $op, $prefix, $quote, $value ];
 
         # invert fuzzy
         if ( $op eq '!~' ) {
             $value .= $wildcard unless $value =~ m/\Q$wildcard/;
-            push( @buf,
-                join( '', 'NOT ', $name, ':', qq/$quote$value$quote/ ) );
+            push(
+                @buf,
+                join( '',
+                    'NOT ', $name, ':', qq/$quote$value$quote$proximity/ )
+            );
         }
 
         # fuzzy
         elsif ( $op eq '~' ) {
             $value .= $wildcard unless $value =~ m/\Q$wildcard/;
-            push( @buf, join( '', $name, ':', qq/$quote$value$quote/ ) );
+            push( @buf,
+                join( '', $name, ':', qq/$quote$value$quote$proximity/ ) );
         }
 
         # invert
         elsif ( $op eq '!:' ) {
-            push( @buf,
-                join( '', 'NOT ', $name, ':', qq/$quote$value$quote/ ) );
+            push(
+                @buf,
+                join( '',
+                    'NOT ', $name, ':', qq/$quote$value$quote$proximity/ )
+            );
         }
 
         # range
@@ -247,7 +281,8 @@ NAME: for my $name (@fields) {
 
         # standard
         else {
-            push( @buf, join( '', $name, ':', qq/$quote$value$quote/ ) );
+            push( @buf,
+                join( '', $name, ':', qq/$quote$value$quote$proximity/ ) );
         }
     }
     my $joiner = $prefix eq '-' ? ' AND ' : ' OR ';
@@ -355,11 +390,12 @@ sub _ks_clause {
         $op = '!' . $op unless $op =~ m/^!/;
     }
     if ( $value =~ m/[\*\?]|\Q$wildcard/ ) {
-        $op = $prefix eq '-' ? '!~' : '~';
+        $op =~ s/:/~/;
     }
 
     my $quote = $clause->quote || '';
     my $is_phrase = $quote eq '"' ? 1 : 0;
+    my $proximity = $clause->proximity || '';
 
     my @buf;
 FIELD: for my $name (@fields) {
@@ -370,7 +406,9 @@ FIELD: for my $name (@fields) {
             next FIELD;
         }
 
-        #warn "as_ks_query: " . dump [ $name, $op, $prefix, $quote, $value ];
+        $self->debug
+            and warn "as_ks_query: "
+            . dump [ $name, $op, $prefix, $quote, $value ];
 
         # range is un-analyzed
         if ( $op eq '..' ) {
@@ -422,6 +460,9 @@ FIELD: for my $name (@fields) {
             # preserve any wildcards
             if ( $value =~ m/[$wildcard\*\?]/ ) {
 
+                # can't use full PolyAnalyzer since it will tokenize
+                # and strip the wildcards off.
+
                 # assume CaseFolder
                 $value = lc($value);
 
@@ -434,10 +475,6 @@ FIELD: for my $name (@fields) {
                         'KinoSearch::Analysis::PolyAnalyzer')
                     )
                 {
-
-                    # NOTE get_analyzers() not available in <=0.30_082
-                    # due to a bug in KS.
-                    # fixed in KS svn trunk as of r5884
                     my $analyzers = $field->analyzer->get_analyzers();
                     for my $ana (@$analyzers) {
                         if ( $ana->isa('KinoSearch::Analysis::Stemmer') ) {
@@ -476,13 +513,52 @@ FIELD: for my $name (@fields) {
         $self->debug and warn "value after :" . dump( \@values );
 
         if ( $is_phrase or @values > 1 ) {
-            push(
-                @buf,
-                KinoSearch::Search::PhraseQuery->new(
-                    field => $name,
-                    terms => \@values,
-                )
-            );
+            if ($proximity) {
+
+                if ( $self->ignore_order_in_proximity ) {
+                    my $n_values = scalar @values;
+                    my @permutations;
+                    while ( $n_values-- > 0 ) {
+                        push(
+                            @permutations,
+                            KSx::Search::ProximityQuery->new(
+                                field  => $name,
+                                terms  => [@values],    # new array
+                                within => $proximity,
+                            )
+                        );
+                        push( @values, shift(@values) );    # shuffle
+
+                    }
+                    $self->debug
+                        and dump [ map { $_->get_terms } @permutations ];
+                    push(
+                        @buf,
+                        KinoSearch::Search::ORQuery->new(
+                            children => \@permutations,
+                        )
+                    );
+                }
+                else {
+                    push(
+                        @buf,
+                        KSx::Search::ProximityQuery->new(
+                            field  => $name,
+                            terms  => \@values,
+                            within => $proximity,
+                        )
+                    );
+                }
+            }
+            else {
+                push(
+                    @buf,
+                    KinoSearch::Search::PhraseQuery->new(
+                        field => $name,
+                        terms => \@values,
+                    )
+                );
+            }
         }
         else {
             my $term = $values[0];
@@ -493,11 +569,22 @@ FIELD: for my $name (@fields) {
             {
                 $term .= $wildcard unless $term =~ m/\Q$wildcard/;
 
+                # instead of a NOTWildcardQuery, wrap the WildcardQuery
+                # in a NOTQuery. This is for matching things like:
+                #
+                #  somefield!=?*
+                #
+                # where a NOTWildcardQuery would naturally only look
+                # at terms that exist in the lexicon, and not terms
+                # that do not.
                 push(
                     @buf,
-                    Search::Query::Dialect::KSx::NOTWildcardQuery->new(
-                        field => $name,
-                        term  => $term,
+                    KinoSearch::Search::NOTQuery->new(
+                        negated_query =>
+                            Search::Query::Dialect::KSx::WildcardQuery->new(
+                            field => $name,
+                            term  => $term,
+                            )
                     )
                 );
             }

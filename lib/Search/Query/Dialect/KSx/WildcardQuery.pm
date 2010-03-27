@@ -6,7 +6,7 @@ use Carp;
 use Scalar::Util qw( blessed );
 use Search::Query::Dialect::KSx::Compiler;
 
-our $VERSION = '0.05';
+our $VERSION = '0.06';
 
 =head1 NAME
 
@@ -162,11 +162,10 @@ Returns a Search::Query::Dialect::KSx::Compiler object.
 
 sub make_compiler {
     my $self = shift;
-    return Search::Query::Dialect::KSx::Compiler->new(
-        @_,
-        parent  => $self,
-        include => 1,
-    );
+    my %args = @_;
+    $args{parent}  = $self;
+    $args{include} = 1;
+    return Search::Query::Dialect::KSx::Compiler->new( %args );
 }
 
 1;
