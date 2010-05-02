@@ -21,8 +21,8 @@ WriteMakefile(
     PL_FILES  => {},
     PREREQ_PM => {
         'Test::More'    => 0,
-        'Search::Query' => 0.12,
-        'KinoSearch'    => 0.30_10,
+        'Search::Query' => 0.14,
+        'KinoSearch'    => 0.30_101,
     },
     dist  => { COMPRESS => 'gzip -9f', SUFFIX => 'gz', },
     clean => { FILES    => 'Search-Query-Dialect-KSx-*' },

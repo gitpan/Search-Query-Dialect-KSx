@@ -6,13 +6,27 @@ use Carp;
 use Search::Query::Dialect::KSx::Scorer;
 use Data::Dump qw( dump );
 
-our $VERSION = '0.08';
+our $VERSION = '0.09';
 
 # inside out vars
 my (%include,           %searchable,        %idf,
     %raw_impact,        %lex_terms,         %doc_freq,
     %query_norm_factor, %normalized_impact, %term_freq
 );
+
+sub DESTROY {
+    my $self = shift;
+    delete $include{$$self};
+    delete $raw_impact{$$self};
+    delete $query_norm_factor{$$self};
+    delete $searchable{$$self};
+    delete $lex_terms{$$self};
+    delete $normalized_impact{$$self};
+    delete $idf{$$self};
+    delete $doc_freq{$$self};
+    delete $term_freq{$$self};
+    $self->SUPER::DESTROY;
+}
 
 =head1 NAME
 
@@ -76,7 +90,7 @@ sub make_matcher {
     return unless $lexicon;
 
     # Retrieve the correct Similarity for the Query's field.
-    my $sim = $args{similarity} = $searchable->get_schema->fetch_sim($field);
+    my $sim = $args{similarity} || $searchable->get_schema->fetch_sim($field);
 
     $lexicon->seek( defined $prefix ? $prefix : '' );
 
@@ -197,10 +211,9 @@ Overrides base class. Currently just passes I<factor> on to parent method.
 =cut
 
 sub apply_norm_factor {
+
+    # pass-through for now
     my ( $self, $factor ) = @_;
-
-    #carp "apply_norm_factor=$factor";
-
     $self->SUPER::apply_norm_factor($factor);
 }
 
@@ -220,7 +233,7 @@ Returns imact of term on score.
 
 sub sum_of_squared_weights {
 
-    #carp "sum_of_squared_weights";
+    # pass-through for now
     my $self = shift;
     return exists $raw_impact{$$self} ? $raw_impact{$$self}**2 : '1.0';
 }

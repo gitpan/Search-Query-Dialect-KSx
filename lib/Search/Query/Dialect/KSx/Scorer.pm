@@ -4,10 +4,20 @@ use warnings;
 use base qw( KinoSearch::Search::Matcher );
 use Carp;
 
-our $VERSION = '0.08';
+our $VERSION = '0.09';
 
 # Inside-out member vars.
 my ( %doc_ids, %pos, %boosts, %sim, %term_freqs );
+
+sub DESTROY {
+    my $self = shift;
+    delete $doc_ids{$$self};
+    delete $pos{$$self};
+    delete $boosts{$$self};
+    delete $sim{$$self};
+    delete $term_freqs{$$self};
+    $self->SUPER::DESTROY;
+}
 
 =head1 NAME
 
@@ -34,8 +44,6 @@ sub new {
     my ( $class, %args ) = @_;
 
     my $compiler      = delete $args{compiler};
-    my $reader        = delete $args{reader};
-    my $need_score    = delete $args{need_score};
     my $posting_lists = delete $args{posting_lists};
     my $self          = $class->SUPER::new(%args);
 
@@ -76,10 +84,10 @@ Returns the doc_id for the current position.
 =cut
 
 sub get_doc_id {
-    my $self    = shift;
-    my $pos     = $pos{$$self};
-    my $doc_ids = $doc_ids{$$self};
-    return $pos < scalar @$doc_ids ? $$doc_ids[$pos] : 0;
+    my $self = shift;
+    my $pos  = $pos{$$self};
+    my $dids = $doc_ids{$$self};
+    return $pos < scalar @$dids ? $$dids[$pos] : 0;
 }
 
 =head2 score
@@ -91,9 +99,9 @@ Returns the score of the hit.
 sub score {
     my $self      = shift;
     my $pos       = $pos{$$self};
-    my $doc_ids   = $doc_ids{$$self};
+    my $dids      = $doc_ids{$$self};
     my $boost     = $boosts{$$self};
-    my $doc_id    = $$doc_ids[$pos];
+    my $doc_id    = $$dids[$pos];
     my $term_freq = $term_freqs{$$self}->{$doc_id};
 
     #carp "doc_id=$doc_id  term_freq=$term_freq  boost=$boost";
