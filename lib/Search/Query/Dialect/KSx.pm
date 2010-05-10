@@ -17,7 +17,7 @@ use KSx::Search::ProximityQuery;
 use Search::Query::Dialect::KSx::NOTWildcardQuery;
 use Search::Query::Dialect::KSx::WildcardQuery;
 
-our $VERSION = '0.10';
+our $VERSION = '0.11';
 
 __PACKAGE__->mk_accessors(
     qw(
@@ -77,7 +77,7 @@ If true, a wildcard is automatically appended to each query term.
 
 =item ignore_order_in_proximity
 
-If true, the terms in a proximity query will be evaluated for 
+If true, the terms in a proximity query will be evaluated for
 matches regardless of the order in which they appear. For example,
 given a document excerpt like:
 
@@ -206,7 +206,8 @@ sub stringify_clause {
     # if we have no fields, then operator is ignored.
     if ( !@fields ) {
         $self->debug and warn "no fields for " . dump($clause);
-        return qq/$quote$value$quote$proximity/;
+        my $str = qq/$quote$value$quote$proximity/;
+        return $prefix eq '-' ? ( 'NOT ' . $str ) : $str;
     }
 
     my $wildcard = $self->wildcard;
@@ -308,7 +309,7 @@ NAME: for my $name (@fields) {
 =head2 as_ks_query
 
 Returns the Dialect object as a KinoSearch::Search::Query-based object.
-The Dialect object is walked and converted to a 
+The Dialect object is walked and converted to a
 KinoSearch::Searcher-compatible tree.
 
 =cut
@@ -328,31 +329,45 @@ sub as_ks_query {
         my @clauses;
         my $joiner = $ks_class_map{$prefix};
         next unless exists $tree->{$prefix};
+        my $has_explicit_fields = 0;
         for my $clause ( @{ $tree->{$prefix} } ) {
             push( @clauses, $self->_ks_clause( $clause, $prefix ) );
+            if ( defined $clause->{field} ) {
+                $has_explicit_fields++;
+            }
         }
         next if !@clauses;
 
         my $ks_class = 'KinoSearch::Search::' . $joiner . 'Query';
+        my $ks_param_name = $joiner eq 'NOT' ? 'negated_query' : 'children';
+        @clauses = grep {defined} @clauses;
+        if ( $prefix eq '-' and @clauses > 1 ) {
+            $ks_class      = 'KinoSearch::Search::ANDQuery';
+            $ks_param_name = 'children';
+        }
+
+        #warn "$ks_class -> new( $ks_param_name => " . dump \@clauses;
+        #warn "has_explicit_fields=$has_explicit_fields";
 
         if ( @clauses == 1 ) {
-            if ( $prefix eq '-' ) {
-                push @q, $ks_class->new( negated_query => $clauses[0] );
+            if (    $prefix eq '-'
+                and $has_explicit_fields
+                and !$clauses[0]->isa($ks_class) )
+            {
+                push @q, $ks_class->new( $ks_param_name => $clauses[0] );
             }
             else {
                 push @q, $clauses[0];
             }
         }
+        elsif ( !$has_explicit_fields and $prefix eq '-' ) {
+
+            warn "do not wrap \@clauses in a $ks_class";
+            push @q, @clauses;
+
+        }
         else {
-            if ( $prefix eq '-' ) {
-                my $and_not = KinoSearch::Search::ANDQuery->new(
-                    children => \@clauses );
-                push @q, $and_not;
-            }
-            else {
-                push @q,
-                    $ks_class->new( children => [ grep {defined} @clauses ] );
-            }
+            push @q, $ks_class->new( $ks_param_name => \@clauses );
         }
 
     }
