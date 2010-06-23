@@ -17,7 +17,7 @@ use KSx::Search::ProximityQuery;
 use Search::Query::Dialect::KSx::NOTWildcardQuery;
 use Search::Query::Dialect::KSx::WildcardQuery;
 
-our $VERSION = '0.11';
+our $VERSION = '0.12';
 
 __PACKAGE__->mk_accessors(
     qw(
@@ -122,6 +122,16 @@ my %op_map = (
     '-' => ' ',
 );
 
+sub _get_clause_joiner {
+    my $self = shift;
+    if ( $self->parser->default_boolop eq '+' ) {
+        return 'AND';
+    }
+    else {
+        return 'OR';
+    }
+}
+
 sub stringify {
     my $self = shift;
     my $tree = shift || $self;
@@ -138,8 +148,8 @@ sub stringify {
 
         push @q, join( $joiner, grep { defined and length } @clauses );
     }
-
-    return join " AND ", @q;
+    my $clause_joiner = $self->_get_clause_joiner;
+    return join " $clause_joiner ", @q;
 }
 
 sub _doctor_value {
@@ -170,14 +180,34 @@ sub stringify_clause {
     #warn "prefix = '$prefix'";
 
     if ( $clause->{op} eq '()' ) {
+        my $str = $self->stringify( $clause->{value} );
         if ( $clause->has_children and $clause->has_children == 1 ) {
-            return ( $prefix eq '-' ? 'NOT ' : '' )
-                . $self->stringify( $clause->{value} );
+            if ( $prefix eq '-' ) {
+                return "(NOT ($str))";
+            }
+            else {
+
+                # try not to double up the () unnecessarily
+                if ( $str =~ m/^\(/ ) {
+                    return $str;
+                }
+                else {
+                    return "($str)";
+                }
+            }
         }
         else {
-            return
-                ( $prefix eq '-' ? 'NOT ' : '' ) . "("
-                . $self->stringify( $clause->{value} ) . ")";
+            if ( $prefix eq '-' ) {
+                if ( $str =~ m/^\(/ ) {
+                    return "(NOT $str)";
+                }
+                else {
+                    return "(NOT ($str))";
+                }
+            }
+            else {
+                return "($str)";
+            }
         }
     }
 
@@ -246,7 +276,8 @@ NAME: for my $name (@fields) {
             push(
                 @buf,
                 join( '',
-                    'NOT ', $name, ':', qq/$quote$value$quote$proximity/ )
+                    '(NOT ', $name, ':', qq/$quote$value$quote$proximity/,
+                    ')' )
             );
         }
 
@@ -262,7 +293,8 @@ NAME: for my $name (@fields) {
             push(
                 @buf,
                 join( '',
-                    'NOT ', $name, ':', qq/$quote$value$quote$proximity/ )
+                    '(NOT ', $name, ':', qq/$quote$value$quote$proximity/,
+                    ')' )
             );
         }
 
@@ -372,9 +404,12 @@ sub as_ks_query {
 
     }
 
+    my $clause_joiner   = $self->_get_clause_joiner;
+    my $ks_class_joiner = 'KinoSearch::Search::' . $clause_joiner . 'Query';
+
     return @q == 1
         ? $q[0]
-        : KinoSearch::Search::ANDQuery->new( children => \@q );
+        : $ks_class_joiner->new( children => \@q );
 }
 
 sub _ks_clause {
@@ -595,6 +630,11 @@ FIELD: for my $name (@fields) {
         }
         else {
             my $term = $values[0];
+
+            # TODO why would this happen?
+            if ( !defined $term or !length $term ) {
+                next FIELD;
+            }
 
             # invert fuzzy
             if ( $op eq '!~'
