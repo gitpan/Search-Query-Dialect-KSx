@@ -45,6 +45,11 @@ ok( my $parser = Search::Query::Parser->new(
     "new parser"
 );
 
+ok( my $tree_able = $parser->parse("foo OR bar"), "parse for tree_able" );
+ok( my $tree      = $tree_able->tree(),           "->tree" );
+ok( my $native_tree = $tree_able->translate_to('Native'),
+    "translate to Native dialect" );
+
 my %docs = (
     'doc1' => {
         title  => 'i am doc1',
@@ -169,5 +174,31 @@ $ks_query = $query->as_ks_query();
 $hits = $searcher->hits( query => $ks_query, offset => 0, num_wanted => 5 );
 is( $hits->total_hits, 0, "proximity order respected" );
 
+# alternate way of doing wildcard searches: expand initial query
+# from lexicon like Xapian does.
+$parser->term_expander(
+    sub {
+        my ($term) = @_;
+        return ($term) unless $term =~ m/[\*\?]/;
+
+        # Assume here we have a cached list of terms,
+        # either from a Lexicon or a db, etc.
+        # In this case, we just return a hardcoded array
+        # since we know what $term is
+
+        return qw( doc1 doc2 doc3 doc4 );
+
+    },
+);
+
+ok( my $wild_query = $parser->parse(qq/title=doc*/), "parse query" );
+$ks_query = $wild_query->as_ks_query();
+
+#diag($wild_query);
+#diag(dump $ks_query->dump);
+#diag($ks_query->to_string);
+$hits = $searcher->hits( query => $ks_query, offset => 0, num_wanted => 5 );
+is( $hits->total_hits, 4, "alternate wildcard works" );
+
 # allow for adding new queries without adjusting test count
-done_testing( scalar( keys %queries ) + 4 );
+done_testing( scalar( keys %queries ) + 9 );

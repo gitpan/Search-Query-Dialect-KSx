@@ -1,6 +1,6 @@
 --- #YAML:1.0
 name:               Search-Query-Dialect-KSx
-version:            0.12
+version:            0.13
 abstract:           KinoSearch query dialect
 author:
     - Peter Karman <karman@cpan.org>
@@ -11,7 +11,7 @@ configure_requires:
 build_requires:
     ExtUtils::MakeMaker:  0
 requires:
-    KinoSearch:     0.30101
+    KinoSearch:     0.31
     perl:           5.008003
     Search::Query:  0.14
     Test::More:     0
