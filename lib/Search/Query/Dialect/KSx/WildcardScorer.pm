@@ -1,10 +1,10 @@
-package Search::Query::Dialect::KSx::Scorer;
+package Search::Query::Dialect::KSx::WildcardScorer;
 use strict;
 use warnings;
 use base qw( KinoSearch::Search::Matcher );
 use Carp;
 
-our $VERSION = '0.14';
+our $VERSION = '0.200';
 
 # Inside-out member vars.
 my ( %doc_ids, %pos, %boosts, %sim, %term_freqs );
@@ -21,7 +21,7 @@ sub DESTROY {
 
 =head1 NAME
 
-Search::Query::Dialect::KSx::Scorer - KinoSearch query extension
+Search::Query::Dialect::KSx::WildcardScorer - KinoSearch query extension
 
 =head1 SYNOPSIS
 

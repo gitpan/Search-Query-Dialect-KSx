@@ -1,8 +1,8 @@
 Changes
 lib/Search/Query/Dialect/KSx.pm
-lib/Search/Query/Dialect/KSx/Compiler.pm
+lib/Search/Query/Dialect/KSx/WildcardCompiler.pm
 lib/Search/Query/Dialect/KSx/NOTWildcardQuery.pm
-lib/Search/Query/Dialect/KSx/Scorer.pm
+lib/Search/Query/Dialect/KSx/WildcardScorer.pm
 lib/Search/Query/Dialect/KSx/WildcardQuery.pm
 lib/Search/Query/Field/KSx.pm
 Makefile.PL
@@ -13,4 +13,5 @@ t/01-parser.t
 t/02-search.t
 t/pod-coverage.t
 t/pod.t
-META.yml                                 Module meta-data (added by MakeMaker)
+META.yml                                 Module YAML meta-data (added by MakeMaker)
+META.json                                Module JSON meta-data (added by MakeMaker)
