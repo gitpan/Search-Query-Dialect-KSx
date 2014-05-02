@@ -20,7 +20,7 @@ no_index:
 requires:
   KinoSearch: '0.31'
   Moo: '0'
-  Search::Query: '0.200'
+  Search::Query: '0.300'
   Test::More: '0'
   perl: '5.008003'
 resources:
@@ -28,4 +28,4 @@ resources:
   homepage: https://github.com/karpet/search-query-dialect-ksx
   license: http://dev.perl.org/licenses/
   repository: https://github.com/karpet/search-query-dialect-ksx
-version: '0.200'
+version: '0.201'
